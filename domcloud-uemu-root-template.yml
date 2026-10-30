@@ -1,0 +1,120 @@
+# ============================================================
+# DOM Cloud — UEMU / Android Emulator Full-Root Template
+# ============================================================
+# Purpose:
+#   Deploy a persistent Android emulator environment on DOM Cloud
+#   with full root access (adb root + Magisk-ready).
+#
+# Requirements:
+#   - DOM Cloud Kit plan or higher (Docker feature)
+#   - Prefer x64 servers (SGA / SGX / WDC) for best emulator compatibility
+#   - Nested virtualization / KVM if available (otherwise software emu)
+#
+# How to use on DOM Cloud:
+#   1. Create a new site
+#   2. Paste this entire file into the Deployment Script editor
+#   3. Deploy
+#   4. Wait for first boot (5-15 min depending on image download)
+#   5. Connect via ADB:  adb connect <your-domain>:5555
+#   6. Gain root:        adb root && adb shell
+#
+# After deploy you get:
+#   - Headless Android emulator (default API 30 / x86_64)
+#   - ADB over TCP on port 5555 (mapped)
+#   - Full root (adb root works out of the box on Google APIs images)
+#   - Optional Magisk / SuperSU ready structure
+#   - Persistent data volume
+# ============================================================
+
+source: clear
+
+features:
+  - docker
+
+# Optional: keep the site alive 24/7
+# (Docker feature already lifts the process limit)
+
+services:
+  uemu:
+    # Popular cloud-ready Android emulator image
+    # Alternatives you can swap:
+    #   - budtmo/docker-android:emulator_11.0
+    #   - redroid/redroid:12.0.0-latest
+    #   - freerpa/android-emulator
+    image: budtmo/docker-android:emulator_11.0
+
+    container_name: uemu-root
+
+    restart: always
+
+    privileged: true          # needed for full root + device nodes
+
+    environment:
+      # Emulator configuration
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
+      WEB_VNC: "true"
+      APPIUM: "false"
+      # Force root-friendly image behaviour
+      ANDROID_AVD_HOME: /root/.android/avd
+      # Extra emulator flags (root + writable system)
+      EMULATOR_ARGS: "-writable-system -no-snapshot -gpu swiftshader_indirect -no-audio -no-boot-anim"
+
+      # Optional: auto-start ADB daemon in root mode
+      ADB_ROOT: "true"
+
+    ports:
+      - "5555:5555"           # ADB
+      - "6080:6080"           # noVNC web interface (if enabled)
+      - "5900:5900"           # VNC (optional)
+
+    volumes:
+      # Persist emulator data across restarts
+      - uemu-data:/root/.android
+      - uemu-sdk:/opt/android
+      # Optional: mount your own Magisk / root scripts
+      # - ./root-scripts:/root-scripts:ro
+
+    devices:
+      - /dev/kvm              # hardware acceleration when available
+      # fallback if KVM not present — container still starts in software mode
+
+    # Give the container enough resources
+    shm_size: "2gb"
+    mem_limit: 4g
+
+    healthcheck:
+      test: ["CMD", "adb", "devices"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+volumes:
+  uemu-data:
+  uemu-sdk:
+
+# ============================================================
+# POST-DEPLOY ROOT ACCESS COMMANDS
+# ============================================================
+# After the container is healthy run these from your local machine:
+#
+#   adb connect YOUR_DOM_CLOUD_DOMAIN:5555
+#   adb root
+#   adb remount
+#   adb shell
+#   # you should now see root@... #
+#
+# Optional permanent Magisk install (advanced):
+#   1. Download Magisk APK + patched boot image
+#   2. adb push Magisk.apk /data/local/tmp/
+#   3. adb shell pm install /data/local/tmp/Magisk.apk
+#   4. Follow Magisk documentation for emulator patching
+#
+# To switch Android version simply change the image tag and redeploy.
+# Popular tags:
+#   budtmo/docker-android:emulator_9.0
+#   budtmo/docker-android:emulator_10.0
+#   budtmo/docker-android:emulator_11.0
+#   budtmo/docker-android:emulator_12.0
+#   budtmo/docker-android:emulator_13.0
+# ============================================================
